@@ -215,7 +215,7 @@ interface SearchMatch {
 interface SearchResult {
   category: string;
   repo: string;
-  file: string;
+  file: string | null;
   matches: SearchMatch[];
 }
 
@@ -223,15 +223,32 @@ interface SearchResult {
  * Search for code in repositories
  */
 async function searchCode(
-  pattern: string, 
+  pattern?: string, 
   filePattern = '*', 
   categoryFilter?: string, 
-  repoFilter?: string
+  repoFilter?: string,
+  filenameOnly = false,
+  useRegex = false
 ): Promise<SearchResult[]> {
   try {
     const results: SearchResult[] = [];
     const repositories = getRepositories();
     const categories = categoryFilter ? [categoryFilter] : Object.keys(repositories);
+    
+    // Special handling for package.json files - if filePattern is package.json and no pattern,
+    // default to showing all content
+    const isPackageJsonSearch = filePattern.includes('package.json');
+    const effectivePattern = pattern || (isPackageJsonSearch ? '.' : undefined);
+    
+    // Prepare regex pattern if using regex mode
+    let regex: RegExp | undefined;
+    if (useRegex && effectivePattern) {
+      try {
+        regex = new RegExp(effectivePattern);
+      } catch (e) {
+        throw new Error(`Invalid regex pattern: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     
     for (const category of categories) {
       if (!repositories[category]) continue;
@@ -248,24 +265,72 @@ async function searchCode(
           continue;
         }
         
+        // Use double-asterisk pattern to search recursively unless explicitly provided
+        const globPattern = filePattern.includes('**') ? filePattern : `**/${filePattern}`;
+        
         // Find all matching files
-        const files = await globby([`**/${filePattern}`], {
+        const files = await globby([globPattern], {
           cwd: repoPath,
           gitignore: true,
           dot: false,
         });
+        
+        // If filename only mode, just return the files without content
+        if (filenameOnly) {
+          if (files.length > 0) {
+            results.push({
+              category,
+              repo,
+              file: null,
+              matches: [{
+                line: 0,
+                content: `Found ${files.length} matching files`,
+                context: files.map((filename, idx) => ({
+                  line: idx + 1,
+                  text: filename,
+                  isMatch: true
+                }))
+              }]
+            });
+          }
+          continue;
+        }
         
         // Search through the files
         for (const file of files) {
           const filePath = path.join(repoPath, file);
           try {
             const content = await fs.readFile(filePath, 'utf-8');
+            
+            // If no pattern provided, return the entire file content
+            if (!effectivePattern) {
+              results.push({
+                category,
+                repo,
+                file,
+                matches: [{
+                  line: 1,
+                  content: "File content (first 10 lines):",
+                  context: content.split('\n').slice(0, 10).map((text, idx) => ({
+                    line: idx + 1,
+                    text,
+                    isMatch: true,
+                  })),
+                }]
+              });
+              continue;
+            }
+
             const lines = content.split('\n');
             
             // Look for matches
             const matchingLines: SearchMatch[] = [];
             for (let i = 0; i < lines.length; i++) {
-              if (lines[i].includes(pattern)) {
+              const hasMatch = useRegex 
+                ? regex?.test(lines[i]) 
+                : lines[i].includes(effectivePattern);
+                
+              if (hasMatch) {
                 // Add context (3 lines before and after)
                 const start = Math.max(0, i - 3);
                 const end = Math.min(lines.length - 1, i + 3);
@@ -672,28 +737,100 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const repo = args.repo as string | undefined;
         const maxResults = args.maxResults as number || 50;
         const contextLines = args.contextLines as number || 3;
+        const filenameOnly = args.filenameOnly as boolean || false;
+        
+        // Auto-detect if the pattern is a regex by checking for regex metacharacters
+        const hasRegexChars = /[\\^$.|?*+()[{]/g.test(pattern);
+        const containsPipe = pattern.includes('|');
+        
+        // If pattern contains | or regex chars, treat as regex
+        const useRegex = hasRegexChars || containsPipe; 
         
         if (!pattern) {
           throw new Error("Search pattern is required");
         }
         
-        // Use cached search if available
-        const results = await searchCodeWithCache(
-          pattern,
-          filePattern,
-          category,
-          repo,
-          getRepositories(),
-          maxResults,
-          contextLines
-        );
-        
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify(results, null, 2)
-          }]
-        };
+        try {
+          // Use direct searchCode function instead of cache wrapper for more flexible search options
+          const results = await searchCode(
+            pattern,
+            filePattern,
+            category,
+            repo,
+            filenameOnly,
+            useRegex
+          );
+          
+          // Sort results by most relevant first
+          const sortedResults = [...results].sort((a, b) => 
+            // Sort by most matches first
+            b.matches.length - a.matches.length
+          );
+          
+          // Limit results
+          const limitedResults = sortedResults.slice(0, maxResults);
+          
+          // Add summary message if results were limited
+          if (sortedResults.length > maxResults) {
+            limitedResults.unshift({
+              category: "info",
+              repo: "summary",
+              file: null,
+              matches: [{
+                line: 1,
+                content: `Found ${sortedResults.length} total results but only showing ${maxResults}. Use more specific search terms to narrow results.`,
+                context: [{
+                  line: 1,
+                  text: `Found ${sortedResults.length} total results but only showing ${maxResults}. Use more specific search terms to narrow results.`,
+                  isMatch: true
+                }]
+              }]
+            });
+          }
+          
+          // If no results were found, provide feedback
+          if (sortedResults.length === 0) {
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify([{
+                  category: "info",
+                  repo: "search",
+                  file: null,
+                  matches: [{
+                    line: 1,
+                    content: `No results found for pattern "${pattern}" in ${filePattern} files.${useRegex ? " (Using regex mode)" : ""}`,
+                    context: [{
+                      line: 1,
+                      text: `Try these search tips:
+1. For exact match: use simple terms without special characters
+2. For regex: use .* for any text, | for OR conditions (e.g., "import|require")
+3. For file contents: try searching for common terms like "function" or "class" 
+4. For specific files: set filePattern to extensions like "*.ts" or "*.js"`,
+                      isMatch: true
+                    }]
+                  }]
+                }], null, 2)
+              }]
+            };
+          }
+          
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify(limitedResults, null, 2)
+            }]
+          };
+        } catch (error) {
+          console.error(`Error in search_code:`, error);
+          return {
+            content: [{
+              type: "text",
+              text: `Error during search: ${error instanceof Error ? error.message : String(error)}`
+            }],
+            isError: true
+          };
+        }
       }
       
       default:

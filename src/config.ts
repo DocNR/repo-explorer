@@ -22,6 +22,10 @@ const defaultConfig = {
         url: 'https://github.com/nostr-protocol/nips',
         description: 'Nostr Implementation Possibilities',
       },
+      olas: {
+        url: 'https://github.com/pablof7z/olas',
+        description: 'Olas - Nostr-based platform',
+      },
     },
     databases: {
       watermelondb: {
