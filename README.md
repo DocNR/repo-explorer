@@ -140,6 +140,7 @@ The repo-explorer implements an advanced caching system that dramatically improv
 - **Search Result Caching**: Stores results of previous searches to eliminate redundant file scanning
 - **Repository Structure Caching**: Maintains an index of repository file structures to speed up pattern matching
 - **Intelligent Cache Invalidation**: Automatically refreshes cache when repositories are updated
+- **Result Limiting Controls**: Configure maximum results and context lines to prevent context window overflow
 
 ### Efficiency Gains
 
@@ -253,7 +254,9 @@ Here are some examples of using the repo-explorer's tools:
   "pattern": "function\\s+\\w+\\s*\\(",
   "filePattern": "*.js",
   "category": "databases",
-  "repo": "watermelondb"
+  "repo": "watermelondb",
+  "maxResults": 30,
+  "contextLines": 2
 }
 </arguments>
 </use_mcp_tool>

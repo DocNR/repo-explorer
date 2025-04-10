@@ -482,7 +482,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "search_code",
-        description: "Search for code across repositories",
+        description: "Search for code across repositories with configurable result size",
         inputSchema: {
           type: "object",
           properties: {
@@ -501,6 +501,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             repo: {
               type: "string",
               description: "Optional repository filter"
+            },
+            maxResults: {
+              type: "number",
+              description: "Maximum number of results to return (default: 50)"
+            },
+            contextLines: {
+              type: "number",
+              description: "Number of context lines before/after matches (default: 3)"
             }
           },
           required: ["pattern"]
@@ -662,6 +670,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const filePattern = args.filePattern as string || '*';
         const category = args.category as string | undefined;
         const repo = args.repo as string | undefined;
+        const maxResults = args.maxResults as number || 50;
+        const contextLines = args.contextLines as number || 3;
         
         if (!pattern) {
           throw new Error("Search pattern is required");
@@ -673,7 +683,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           filePattern,
           category,
           repo,
-          getRepositories()
+          getRepositories(),
+          maxResults,
+          contextLines
         );
         
         return {

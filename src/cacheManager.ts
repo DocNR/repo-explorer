@@ -786,7 +786,9 @@ export async function searchCodeWithCache(
   filePattern = '*', 
   categoryFilter?: string, 
   repoFilter?: string,
-  repositories?: any
+  repositories?: any,
+  maxResults = 50,
+  contextLines = 3
 ): Promise<any[]> {
   try {
     const results: any[] = [];
@@ -839,8 +841,8 @@ export async function searchCodeWithCache(
                     // Skip invalid line numbers
                     if (line < 0 || line >= lines.length) continue;
                     
-                    const start = Math.max(0, line - 3);
-                    const end = Math.min(lines.length - 1, line + 3);
+                    const start = Math.max(0, line - contextLines);
+                    const end = Math.min(lines.length - 1, line + contextLines);
                     
                     results.push({
                       category,
@@ -890,8 +892,8 @@ export async function searchCodeWithCache(
                           const line = position - 1;
                           if (line < 0 || line >= lines.length) continue;
                           
-                          const start = Math.max(0, line - 3);
-                          const end = Math.min(lines.length - 1, line + 3);
+                          const start = Math.max(0, line - contextLines);
+                          const end = Math.min(lines.length - 1, line + contextLines);
                           
                           results.push({
                             category,
@@ -941,8 +943,8 @@ export async function searchCodeWithCache(
               
               for (let i = 0; i < lines.length; i++) {
                 if (lines[i].includes(pattern)) {
-                  const start = Math.max(0, i - 3);
-                  const end = Math.min(lines.length - 1, i + 3);
+                  const start = Math.max(0, i - contextLines);
+                  const end = Math.min(lines.length - 1, i + contextLines);
                   
                   matchingLines.push({
                     line: i + 1,
@@ -978,7 +980,33 @@ export async function searchCodeWithCache(
       }
     }
     
-    return results;
+    // Get total count and sort results by number of matches before limiting
+    const totalCount = results.length;
+
+    // Sort results by the number of matches (files with more matches come first)
+    results.sort((a, b) => b.matches.length - a.matches.length);
+
+    // Add an informative message at the beginning if results were limited
+    const limitedResults = results.slice(0, maxResults);
+    
+    if (totalCount > maxResults) {
+      limitedResults.unshift({
+        category: "info",
+        repo: "summary",
+        file: "results_info.txt",
+        matches: [{
+          line: 1,
+          content: `⚠️ NOTE: Found ${totalCount} total results but only showing ${maxResults}. Consider using more specific search terms or patterns.`,
+          context: [{
+            line: 1, 
+            text: `⚠️ NOTE: Found ${totalCount} total results but only showing ${maxResults}. Consider using more specific search terms or patterns.`,
+            isMatch: true
+          }]
+        }]
+      });
+    }
+    
+    return limitedResults;
   } catch (error) {
     console.error(`Error searching code with cache:`, error);
     return [];
