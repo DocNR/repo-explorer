@@ -1,0 +1,28 @@
+{
+  "name": "repo-explorer",
+  "version": "0.1.0",
+  "description": "An MCP server for exploring and analyzing reference repositories",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "repo-explorer": "build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc && node --input-type=module -e \"import { promises as fs } from 'fs'; await fs.chmod('build/index.js', 0o755);\"",
+    "watch": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.6.0",
+    "fs-extra": "^11.3.0",
+    "globby": "^14.1.0",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+}
